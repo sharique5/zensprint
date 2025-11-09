@@ -8,12 +8,94 @@ import {
   Pressable,
   StatusBar,
   Platform,
+  Animated,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Circle, GameState, COLORS, FOCUS_COLORS, GAME_CONFIG } from '../types/game';
 
 const { width, height } = Dimensions.get('window');
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
+
+// Animated Circle Component
+const AnimatedCircle: React.FC<{
+  circle: Circle;
+  onPress: (circle: Circle) => void;
+  focusColor: string;
+}> = ({ circle, onPress, focusColor }) => {
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0.5)).current;
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    // Fade in and scale up on mount
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Pulse animation for focus color circles
+    if (circle.color === focusColor) {
+      const pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.15,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseLoop.start();
+      return () => pulseLoop.stop();
+    }
+  }, []);
+
+  // Calculate opacity based on lifetime
+  const age = Date.now() - circle.createdAt;
+  const lifetimeProgress = age / circle.lifetime;
+  const opacity = fadeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, Math.max(0.3, 1 - lifetimeProgress)],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.circle,
+        {
+          left: circle.x,
+          top: circle.y,
+          width: circle.radius * 2,
+          height: circle.radius * 2,
+          borderRadius: circle.radius,
+          backgroundColor: circle.color,
+          opacity,
+          transform: [
+            { scale: Animated.multiply(scaleAnim, pulseAnim) },
+          ],
+        },
+      ]}
+    >
+      <Pressable
+        onPress={() => onPress(circle)}
+        style={styles.circlePressable}
+      />
+    </Animated.View>
+  );
+};
 
 export default function GameScreen() {
   const [gameState, setGameState] = useState<GameState>({
@@ -29,6 +111,8 @@ export default function GameScreen() {
   });
 
   const [circles, setCircles] = useState<Circle[]>([]);
+  const [flashColor, setFlashColor] = useState<string | null>(null);
+  const flashAnim = React.useRef(new Animated.Value(0)).current;
 
   // Start game (or level)
   const startGame = (continueLevel = false) => {
@@ -167,19 +251,47 @@ export default function GameScreen() {
 
   // Handle circle tap
   const handleCircleTap = (circle: Circle) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
     const difficulty = GAME_CONFIG.getDifficulty(gameState.level);
     
     if (circle.color === gameState.focusColor) {
-      // Correct tap - score multiplied by level
+      // Correct tap - success feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setFlashColor('#4ECDC4'); // Teal flash
+      Animated.sequence([
+        Animated.timing(flashAnim, {
+          toValue: 0.3,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(flashAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => setFlashColor(null));
+      
       setGameState(prev => ({
         ...prev,
         score: prev.score + (10 * difficulty.scoreMultiplier),
         correctTaps: prev.correctTaps + 1,
       }));
     } else {
-      // Wrong tap - lose a life
+      // Wrong tap - error feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setFlashColor('#FF6B6B'); // Red flash
+      Animated.sequence([
+        Animated.timing(flashAnim, {
+          toValue: 0.4,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(flashAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => setFlashColor(null));
+      
       setGameState(prev => {
         const newLives = prev.lives - 1;
         if (newLives <= 0) {
@@ -200,6 +312,20 @@ export default function GameScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Flash overlay for feedback */}
+      {flashColor && (
+        <Animated.View
+          style={[
+            styles.flashOverlay,
+            {
+              backgroundColor: flashColor,
+              opacity: flashAnim,
+            },
+          ]}
+          pointerEvents="none"
+        />
+      )}
+
       {/* Header - only show during gameplay */}
       {gameState.isPlaying && (
         <View style={styles.header}>
@@ -247,29 +373,14 @@ export default function GameScreen() {
       {/* Game area */}
       <View style={styles.gameArea}>
         {gameState.isPlaying ? (
-          circles.map(circle => {
-            const age = Date.now() - circle.createdAt;
-            const opacity = Math.max(0, 1 - age / circle.lifetime);
-
-            return (
-              <Pressable
-                key={circle.id}
-                onPress={() => handleCircleTap(circle)}
-                style={[
-                  styles.circle,
-                  {
-                    left: circle.x,
-                    top: circle.y,
-                    width: circle.radius * 2,
-                    height: circle.radius * 2,
-                    borderRadius: circle.radius,
-                    backgroundColor: circle.color,
-                    opacity,
-                  },
-                ]}
-              />
-            );
-          })
+          circles.map(circle => (
+            <AnimatedCircle
+              key={circle.id}
+              circle={circle}
+              onPress={handleCircleTap}
+              focusColor={gameState.focusColor}
+            />
+          ))
         ) : (
           <View style={styles.menuContainer}>
             {gameState.timeRemaining === GAME_CONFIG.sessionDuration ? (
@@ -326,6 +437,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  flashOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
   },
   header: {
     flexDirection: 'row',
@@ -399,6 +518,15 @@ const styles = StyleSheet.create({
   },
   circle: {
     position: 'absolute',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  circlePressable: {
+    width: '100%',
+    height: '100%',
   },
   menuContainer: {
     flex: 1,
