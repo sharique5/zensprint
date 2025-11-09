@@ -16,6 +16,8 @@ export interface GameState {
   correctTaps: number;
   focusColor: string;
   lives: number;
+  level: number;
+  totalScore: number; // Cumulative score across levels
 }
 
 export const COLORS = {
@@ -42,10 +44,23 @@ export const FOCUS_COLORS = [
 ];
 
 export const GAME_CONFIG = {
-  sessionDuration: 60, // seconds
+  sessionDuration: 60, // seconds per level
   maxLives: 3, // lives before game over
-  circleLifetime: 2500, // milliseconds
-  spawnInterval: 800, // milliseconds between spawns
+  baseCircleLifetime: 2500, // milliseconds (gets faster each level)
+  baseSpawnInterval: 800, // milliseconds (gets faster each level)
   circleRadius: 40,
   maxCircles: 6,
+  
+  // Difficulty scaling per level
+  getDifficulty: (level: number) => {
+    const difficultyMultiplier = 1 - (level - 1) * 0.1; // 10% faster each level
+    const minMultiplier = 0.5; // Cap at 50% speed (2x faster)
+    const multiplier = Math.max(difficultyMultiplier, minMultiplier);
+    
+    return {
+      circleLifetime: GAME_CONFIG.baseCircleLifetime * multiplier,
+      spawnInterval: GAME_CONFIG.baseSpawnInterval * multiplier,
+      scoreMultiplier: level, // Score worth more at higher levels
+    };
+  },
 };

@@ -24,24 +24,46 @@ export default function GameScreen() {
     correctTaps: 0,
     focusColor: COLORS.focus,
     lives: GAME_CONFIG.maxLives,
+    level: 1,
+    totalScore: 0,
   });
 
   const [circles, setCircles] = useState<Circle[]>([]);
 
-  // Start game
-  const startGame = () => {
+  // Start game (or level)
+  const startGame = (continueLevel = false) => {
     // Pick a random focus color for this session
     const randomFocusColor = FOCUS_COLORS[Math.floor(Math.random() * FOCUS_COLORS.length)];
     
-    setGameState({
+    setGameState(prev => ({
       score: 0,
       timeRemaining: GAME_CONFIG.sessionDuration,
       isPlaying: true,
       missedTaps: 0,
       correctTaps: 0,
       focusColor: randomFocusColor,
-      lives: GAME_CONFIG.maxLives,
-    });
+      lives: continueLevel ? prev.lives : GAME_CONFIG.maxLives,
+      level: continueLevel ? prev.level : 1,
+      totalScore: continueLevel ? prev.totalScore : 0,
+    }));
+    setCircles([]);
+  };
+
+  // Advance to next level
+  const nextLevel = () => {
+    const randomFocusColor = FOCUS_COLORS[Math.floor(Math.random() * FOCUS_COLORS.length)];
+    
+    setGameState(prev => ({
+      ...prev,
+      score: 0,
+      timeRemaining: GAME_CONFIG.sessionDuration,
+      isPlaying: true,
+      missedTaps: 0,
+      correctTaps: 0,
+      focusColor: randomFocusColor,
+      level: prev.level + 1,
+      lives: GAME_CONFIG.maxLives, // Restore lives for next level
+    }));
     setCircles([]);
   };
 
@@ -59,8 +81,15 @@ export default function GameScreen() {
       setGameState(prev => {
         const newTime = prev.timeRemaining - 1;
         if (newTime <= 0) {
-          endGame();
-          return { ...prev, timeRemaining: 0, isPlaying: false };
+          // Level complete! Add score to total
+          const newTotalScore = prev.totalScore + prev.score;
+          setGameState(current => ({ 
+            ...current, 
+            timeRemaining: 0, 
+            isPlaying: false,
+            totalScore: newTotalScore,
+          }));
+          return { ...prev, timeRemaining: 0, isPlaying: false, totalScore: newTotalScore };
         }
         return { ...prev, timeRemaining: newTime };
       });
@@ -72,6 +101,8 @@ export default function GameScreen() {
   // Spawn circles
   useEffect(() => {
     if (!gameState.isPlaying) return;
+
+    const difficulty = GAME_CONFIG.getDifficulty(gameState.level);
 
     const spawner = setInterval(() => {
       if (circles.length >= GAME_CONFIG.maxCircles) return;
@@ -93,14 +124,14 @@ export default function GameScreen() {
         y: Math.random() * (height - 300) + 150,
         radius: GAME_CONFIG.circleRadius,
         createdAt: Date.now(),
-        lifetime: GAME_CONFIG.circleLifetime,
+        lifetime: difficulty.circleLifetime,
       };
 
       setCircles(prev => [...prev, newCircle]);
-    }, GAME_CONFIG.spawnInterval);
+    }, difficulty.spawnInterval);
 
     return () => clearInterval(spawner);
-  }, [gameState.isPlaying, gameState.focusColor, circles.length]);
+  }, [gameState.isPlaying, gameState.focusColor, gameState.level, circles.length]);
 
   // Remove expired circles
   useEffect(() => {
@@ -138,11 +169,13 @@ export default function GameScreen() {
   const handleCircleTap = (circle: Circle) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
+    const difficulty = GAME_CONFIG.getDifficulty(gameState.level);
+    
     if (circle.color === gameState.focusColor) {
-      // Correct tap
+      // Correct tap - score multiplied by level
       setGameState(prev => ({
         ...prev,
-        score: prev.score + 10,
+        score: prev.score + (10 * difficulty.scoreMultiplier),
         correctTaps: prev.correctTaps + 1,
       }));
     } else {
@@ -170,7 +203,10 @@ export default function GameScreen() {
       {/* Header - only show during gameplay */}
       {gameState.isPlaying && (
         <View style={styles.header}>
-          <Text style={styles.score}>Score: {gameState.score}</Text>
+          <View>
+            <Text style={styles.score}>Score: {gameState.score}</Text>
+            <Text style={styles.levelText}>Level {gameState.level}</Text>
+          </View>
           <View style={styles.livesContainer}>
             {[...Array(GAME_CONFIG.maxLives)].map((_, index) => (
               <Text
@@ -247,8 +283,9 @@ export default function GameScreen() {
               <View style={styles.gameOverContainer}>
                 <Text style={styles.gameOverText}>Game Over</Text>
                 <Text style={styles.gameOverSubtext}>Mind Drifted...</Text>
-                <Text style={styles.finalScore}>{gameState.score}</Text>
-                <Text style={styles.scoreLabel}>Final Score</Text>
+                <Text style={styles.finalScore}>{gameState.totalScore + gameState.score}</Text>
+                <Text style={styles.scoreLabel}>Total Score</Text>
+                <Text style={styles.levelText}>Reached Level {gameState.level}</Text>
                 <Text style={styles.stats}>
                   Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
                 </Text>
@@ -256,20 +293,26 @@ export default function GameScreen() {
             ) : (
               // Level Complete - time ran out with lives remaining
               <View style={styles.gameOverContainer}>
-                <Text style={styles.levelCompleteText}>Level Complete! ✨</Text>
+                <Text style={styles.levelCompleteText}>Level {gameState.level} Complete! ✨</Text>
                 <Text style={styles.finalScore}>{gameState.score}</Text>
-                <Text style={styles.scoreLabel}>Final Score</Text>
+                <Text style={styles.scoreLabel}>Level Score</Text>
+                <Text style={styles.totalScoreText}>Total: {gameState.totalScore + gameState.score}</Text>
                 <Text style={styles.stats}>
                   Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
                 </Text>
               </View>
             )}
 
-            <TouchableOpacity style={styles.startButton} onPress={startGame}>
+            <TouchableOpacity 
+              style={styles.startButton} 
+              onPress={() => gameState.lives <= 0 || gameState.timeRemaining === GAME_CONFIG.sessionDuration ? startGame() : nextLevel()}
+            >
               <Text style={styles.startButtonText}>
                 {gameState.timeRemaining === GAME_CONFIG.sessionDuration
-                  ? 'Start Session'
-                  : 'Play Again'}
+                  ? 'Start Game'
+                  : gameState.lives <= 0
+                  ? 'Play Again'
+                  : `Next Level ${gameState.level + 1}`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -297,6 +340,11 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  levelText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    marginTop: 2,
   },
   livesContainer: {
     flexDirection: 'row',
@@ -401,6 +449,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.textSecondary,
     marginBottom: 15,
+  },
+  totalScoreText: {
+    fontSize: 18,
+    color: COLORS.focus,
+    fontWeight: 'bold',
+    marginBottom: 10,
   },
   stats: {
     fontSize: 16,
