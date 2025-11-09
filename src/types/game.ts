@@ -15,6 +15,7 @@ export interface GameState {
   missedTaps: number;
   correctTaps: number;
   focusColor: string;
+  lives: number;
 }
 
 export const COLORS = {
@@ -22,14 +23,27 @@ export const COLORS = {
   distractor1: '#FF6B6B', // Coral red
   distractor2: '#FFE66D', // Yellow
   distractor3: '#A8E6CF', // Mint green
+  distractor4: '#95E1D3', // Aqua
+  distractor5: '#F38181', // Pink
   background: '#0a0a0a',
   text: '#ffffff',
   textSecondary: '#888888',
 };
 
+export const FOCUS_COLORS = [
+  '#4ECDC4', // Teal
+  '#FF6B6B', // Coral red
+  '#FFE66D', // Yellow
+  '#A8E6CF', // Mint green
+  '#95E1D3', // Aqua
+  '#F38181', // Pink
+  '#AA96DA', // Purple
+  '#FCBAD3', // Light pink
+];
+
 export const GAME_CONFIG = {
   sessionDuration: 60, // seconds
-  maxMisses: 5,
+  maxLives: 3, // lives before game over
   circleLifetime: 2500, // milliseconds
   spawnInterval: 800, // milliseconds between spawns
   circleRadius: 40,

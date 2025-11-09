@@ -6,11 +6,14 @@ import {
   Dimensions,
   TouchableOpacity,
   Pressable,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Circle, GameState, COLORS, GAME_CONFIG } from '../types/game';
+import { Circle, GameState, COLORS, FOCUS_COLORS, GAME_CONFIG } from '../types/game';
 
 const { width, height } = Dimensions.get('window');
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
 
 export default function GameScreen() {
   const [gameState, setGameState] = useState<GameState>({
@@ -20,19 +23,24 @@ export default function GameScreen() {
     missedTaps: 0,
     correctTaps: 0,
     focusColor: COLORS.focus,
+    lives: GAME_CONFIG.maxLives,
   });
 
   const [circles, setCircles] = useState<Circle[]>([]);
 
   // Start game
   const startGame = () => {
+    // Pick a random focus color for this session
+    const randomFocusColor = FOCUS_COLORS[Math.floor(Math.random() * FOCUS_COLORS.length)];
+    
     setGameState({
       score: 0,
       timeRemaining: GAME_CONFIG.sessionDuration,
       isPlaying: true,
       missedTaps: 0,
       correctTaps: 0,
-      focusColor: COLORS.focus,
+      focusColor: randomFocusColor,
+      lives: GAME_CONFIG.maxLives,
     });
     setCircles([]);
   };
@@ -68,16 +76,19 @@ export default function GameScreen() {
     const spawner = setInterval(() => {
       if (circles.length >= GAME_CONFIG.maxCircles) return;
 
-      const colors = [
-        COLORS.focus,
-        COLORS.distractor1,
-        COLORS.distractor2,
-        COLORS.distractor3,
-      ];
+      // Get all available colors (focus color + distractors)
+      const allColors = FOCUS_COLORS.filter(color => color !== gameState.focusColor);
+      allColors.push(gameState.focusColor); // Add focus color to the pool
+      
+      // Randomly pick a color (with higher chance for focus color)
+      const shouldBeFocusColor = Math.random() > 0.6; // 40% chance for focus color
+      const color = shouldBeFocusColor 
+        ? gameState.focusColor 
+        : allColors[Math.floor(Math.random() * (allColors.length - 1))];
       
       const newCircle: Circle = {
         id: Date.now().toString() + Math.random(),
-        color: colors[Math.floor(Math.random() * colors.length)],
+        color: color,
         x: Math.random() * (width - 100) + 50,
         y: Math.random() * (height - 300) + 150,
         radius: GAME_CONFIG.circleRadius,
@@ -89,7 +100,7 @@ export default function GameScreen() {
     }, GAME_CONFIG.spawnInterval);
 
     return () => clearInterval(spawner);
-  }, [gameState.isPlaying, circles.length]);
+  }, [gameState.isPlaying, gameState.focusColor, circles.length]);
 
   // Remove expired circles
   useEffect(() => {
@@ -101,14 +112,15 @@ export default function GameScreen() {
         const filtered = prev.filter(circle => {
           const age = now - circle.createdAt;
           if (age > circle.lifetime) {
-            // Circle expired - count as miss if it was focus color
+            // Circle expired - lose a life if it was focus color
             if (circle.color === gameState.focusColor) {
               setGameState(gs => {
+                const newLives = gs.lives - 1;
                 const newMisses = gs.missedTaps + 1;
-                if (newMisses >= GAME_CONFIG.maxMisses) {
+                if (newLives <= 0) {
                   endGame();
                 }
-                return { ...gs, missedTaps: newMisses };
+                return { ...gs, missedTaps: newMisses, lives: newLives };
               });
             }
             return false;
@@ -134,12 +146,19 @@ export default function GameScreen() {
         correctTaps: prev.correctTaps + 1,
       }));
     } else {
-      // Wrong tap
-      setGameState(prev => ({
-        ...prev,
-        score: Math.max(0, prev.score - 5),
-        missedTaps: prev.missedTaps + 1,
-      }));
+      // Wrong tap - lose a life
+      setGameState(prev => {
+        const newLives = prev.lives - 1;
+        if (newLives <= 0) {
+          endGame();
+        }
+        return {
+          ...prev,
+          score: Math.max(0, prev.score - 5),
+          missedTaps: prev.missedTaps + 1,
+          lives: newLives,
+        };
+      });
     }
 
     // Remove tapped circle
@@ -148,14 +167,33 @@ export default function GameScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.score}>Score: {gameState.score}</Text>
-        <Text style={styles.timer}>{gameState.timeRemaining}s</Text>
-        <Text style={styles.misses}>
-          Misses: {gameState.missedTaps}/{GAME_CONFIG.maxMisses}
-        </Text>
-      </View>
+      {/* Header - only show during gameplay */}
+      {gameState.isPlaying && (
+        <View style={styles.header}>
+          <Text style={styles.score}>Score: {gameState.score}</Text>
+          <View style={styles.livesContainer}>
+            {[...Array(GAME_CONFIG.maxLives)].map((_, index) => (
+              <Text
+                key={index}
+                style={[
+                  styles.heart,
+                  { opacity: index < gameState.lives ? 1 : 0.2 },
+                ]}
+              >
+                ♥
+              </Text>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Countdown Timer */}
+      {gameState.isPlaying && (
+        <View style={styles.timerContainer}>
+          <Text style={styles.timerText}>{gameState.timeRemaining}</Text>
+          <Text style={styles.timerLabel}>seconds</Text>
+        </View>
+      )}
 
       {/* Focus color indicator */}
       {gameState.isPlaying && (
@@ -198,13 +236,29 @@ export default function GameScreen() {
           })
         ) : (
           <View style={styles.menuContainer}>
-            <Text style={styles.title}>ZenSprint</Text>
-            <Text style={styles.subtitle}>Focus Training Tap Game</Text>
-            
-            {gameState.timeRemaining === 0 && (
+            {gameState.timeRemaining === GAME_CONFIG.sessionDuration ? (
+              // Home screen - before game starts
+              <>
+                <Text style={styles.title}>ZenSprint</Text>
+                <Text style={styles.subtitle}>Focus Training Tap Game</Text>
+              </>
+            ) : gameState.lives <= 0 ? (
+              // Game Over - lost all lives
               <View style={styles.gameOverContainer}>
-                <Text style={styles.gameOverText}>Session Complete!</Text>
-                <Text style={styles.finalScore}>Final Score: {gameState.score}</Text>
+                <Text style={styles.gameOverText}>Game Over</Text>
+                <Text style={styles.gameOverSubtext}>Mind Drifted...</Text>
+                <Text style={styles.finalScore}>{gameState.score}</Text>
+                <Text style={styles.scoreLabel}>Final Score</Text>
+                <Text style={styles.stats}>
+                  Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
+                </Text>
+              </View>
+            ) : (
+              // Level Complete - time ran out with lives remaining
+              <View style={styles.gameOverContainer}>
+                <Text style={styles.levelCompleteText}>Level Complete! ✨</Text>
+                <Text style={styles.finalScore}>{gameState.score}</Text>
+                <Text style={styles.scoreLabel}>Final Score</Text>
                 <Text style={styles.stats}>
                   Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
                 </Text>
@@ -213,7 +267,9 @@ export default function GameScreen() {
 
             <TouchableOpacity style={styles.startButton} onPress={startGame}>
               <Text style={styles.startButtonText}>
-                {gameState.timeRemaining === 0 ? 'Play Again' : 'Start Session'}
+                {gameState.timeRemaining === GAME_CONFIG.sessionDuration
+                  ? 'Start Session'
+                  : 'Play Again'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -231,14 +287,38 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: STATUS_BAR_HEIGHT + 10,
     paddingBottom: 10,
+    backgroundColor: COLORS.background,
   },
   score: {
     color: COLORS.text,
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  livesContainer: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  heart: {
+    fontSize: 24,
+    color: '#FF6B6B',
+  },
+  timerContainer: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  timerText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: COLORS.focus,
+  },
+  timerLabel: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginTop: -5,
   },
   timer: {
     color: COLORS.text,
@@ -295,16 +375,32 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   gameOverText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: COLORS.focus,
-    marginBottom: 15,
-  },
-  finalScore: {
     fontSize: 32,
     fontWeight: 'bold',
+    color: '#FF6B6B',
+    marginBottom: 5,
+  },
+  gameOverSubtext: {
+    fontSize: 18,
+    color: COLORS.textSecondary,
+    marginBottom: 20,
+  },
+  levelCompleteText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: COLORS.focus,
+    marginBottom: 20,
+  },
+  finalScore: {
+    fontSize: 56,
+    fontWeight: 'bold',
     color: COLORS.text,
-    marginBottom: 10,
+    marginBottom: 5,
+  },
+  scoreLabel: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    marginBottom: 15,
   },
   stats: {
     fontSize: 16,
