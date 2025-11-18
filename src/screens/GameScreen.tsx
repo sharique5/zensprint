@@ -13,6 +13,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { Circle, GameState, COLORS, FOCUS_COLORS, GAME_CONFIG } from '../types/game';
 import { soundManager } from '../utils/SoundManager';
+import { getTimeBasedQuote } from '../utils/quotes';
 
 const { width, height } = Dimensions.get('window');
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
@@ -112,10 +113,13 @@ export default function GameScreen() {
     lives: GAME_CONFIG.maxLives,
     level: 1,
     totalScore: 0,
+    combo: 0,
+    maxCombo: 0,
   });
 
   const [circles, setCircles] = useState<Circle[]>([]);
   const [flashColor, setFlashColor] = useState<string | null>(null);
+  const [dailyQuote] = useState<string>(getTimeBasedQuote());
   const flashAnim = React.useRef(new Animated.Value(0)).current;
 
   // Start game (or level)
@@ -133,6 +137,8 @@ export default function GameScreen() {
       lives: continueLevel ? prev.lives : GAME_CONFIG.maxLives,
       level: continueLevel ? prev.level : 1,
       totalScore: continueLevel ? prev.totalScore : 0,
+      combo: 0,
+      maxCombo: continueLevel ? prev.maxCombo : 0,
     }));
     setCircles([]);
   };
@@ -279,8 +285,10 @@ export default function GameScreen() {
       
       setGameState(prev => ({
         ...prev,
-        score: prev.score + (10 * difficulty.scoreMultiplier),
+        score: prev.score + (10 * difficulty.scoreMultiplier) + (prev.combo * 2),
         correctTaps: prev.correctTaps + 1,
+        combo: prev.combo + 1,
+        maxCombo: Math.max(prev.combo + 1, prev.maxCombo),
       }));
     } else {
       // Wrong tap - error feedback
@@ -310,6 +318,7 @@ export default function GameScreen() {
           score: Math.max(0, prev.score - 5),
           missedTaps: prev.missedTaps + 1,
           lives: newLives,
+          combo: 0,
         };
       });
     }
@@ -341,6 +350,12 @@ export default function GameScreen() {
             <Text style={styles.score}>Score: {gameState.score}</Text>
             <Text style={styles.levelText}>Level {gameState.level}</Text>
           </View>
+          {gameState.combo > 2 && (
+            <View style={styles.comboContainer}>
+              <Text style={styles.comboText}>{gameState.combo}x</Text>
+              <Text style={styles.comboLabel}>COMBO</Text>
+            </View>
+          )}
           <View style={styles.livesContainer}>
             {[...Array(GAME_CONFIG.maxLives)].map((_, index) => (
               <Text
@@ -396,6 +411,9 @@ export default function GameScreen() {
               <>
                 <Text style={styles.title}>ZenSprint</Text>
                 <Text style={styles.subtitle}>Focus Training Tap Game</Text>
+                <View style={styles.quoteContainer}>
+                  <Text style={styles.quoteText}>"{dailyQuote}"</Text>
+                </View>
               </>
             ) : gameState.lives <= 0 ? (
               // Game Over - lost all lives
@@ -408,6 +426,11 @@ export default function GameScreen() {
                 <Text style={styles.stats}>
                   Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
                 </Text>
+                {gameState.maxCombo > 5 && (
+                  <Text style={styles.achievementText}>
+                    🔥 Best Combo: {gameState.maxCombo}x
+                  </Text>
+                )}
               </View>
             ) : (
               // Level Complete - time ran out with lives remaining
@@ -419,6 +442,11 @@ export default function GameScreen() {
                 <Text style={styles.stats}>
                   Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
                 </Text>
+                {gameState.maxCombo > 5 && (
+                  <Text style={styles.achievementText}>
+                    🔥 Best Combo: {gameState.maxCombo}x
+                  </Text>
+                )}
               </View>
             )}
 
@@ -476,6 +504,25 @@ const styles = StyleSheet.create({
   livesContainer: {
     flexDirection: 'row',
     gap: 5,
+  },
+  comboContainer: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.2)',
+    paddingHorizontal: 15,
+    paddingVertical: 5,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#FFD700',
+  },
+  comboText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFD700',
+  },
+  comboLabel: {
+    fontSize: 10,
+    color: '#FFD700',
+    fontWeight: 'bold',
   },
   heart: {
     fontSize: 24,
@@ -554,6 +601,18 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     textAlign: 'center',
   },
+  quoteContainer: {
+    marginTop: 30,
+    paddingHorizontal: 30,
+    alignItems: 'center',
+  },
+  quoteText: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    lineHeight: 24,
+  },
   gameOverContainer: {
     alignItems: 'center',
     marginBottom: 30,
@@ -595,6 +654,12 @@ const styles = StyleSheet.create({
   stats: {
     fontSize: 16,
     color: COLORS.textSecondary,
+  },
+  achievementText: {
+    fontSize: 18,
+    color: '#FFD700',
+    fontWeight: 'bold',
+    marginTop: 10,
   },
   startButton: {
     backgroundColor: COLORS.focus,

@@ -18,6 +18,8 @@ export interface GameState {
   lives: number;
   level: number;
   totalScore: number; // Cumulative score across levels
+  combo: number; // Consecutive correct taps
+  maxCombo: number; // Best combo in session
 }
 
 export const COLORS = {
