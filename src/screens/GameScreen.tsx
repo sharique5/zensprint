@@ -9,11 +9,15 @@ import {
   StatusBar,
   Platform,
   Animated,
+  Modal,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Circle, GameState, COLORS, FOCUS_COLORS, GAME_CONFIG } from '../types/game';
 import { soundManager } from '../utils/SoundManager';
 import { getTimeBasedQuote } from '../utils/quotes';
+import { musicManager } from '../utils/MusicManager';
+import { DIFFICULTY_PRESETS, DifficultyLevel } from '../utils/difficulty';
+import { THEMES, getTheme } from '../utils/themes';
 
 const { width, height } = Dimensions.get('window');
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
@@ -115,48 +119,70 @@ export default function GameScreen() {
     totalScore: 0,
     combo: 0,
     maxCombo: 0,
+    showSettings: false,
+    difficulty: 'medium',
+    theme: 'midnight',
+    musicEnabled: true,
   });
 
   const [circles, setCircles] = useState<Circle[]>([]);
   const [flashColor, setFlashColor] = useState<string | null>(null);
   const [dailyQuote] = useState<string>(getTimeBasedQuote());
+  
+  // Get current difficulty config and theme
+  const difficultyConfig = DIFFICULTY_PRESETS[gameState.difficulty];
+  const currentTheme = THEMES[gameState.theme];
+  
+  // Initialize music manager
+  useEffect(() => {
+    musicManager.initialize();
+  }, []);
+  
   const flashAnim = React.useRef(new Animated.Value(0)).current;
 
   // Start game (or level)
   const startGame = (continueLevel = false) => {
-    // Pick a random focus color for this session
-    const randomFocusColor = FOCUS_COLORS[Math.floor(Math.random() * FOCUS_COLORS.length)];
+    // Pick a random focus color from current theme
+    const randomFocusColor = currentTheme.focusColors[Math.floor(Math.random() * currentTheme.focusColors.length)];
+    const config = DIFFICULTY_PRESETS[gameState.difficulty];
     
     setGameState(prev => ({
+      ...prev,
       score: 0,
-      timeRemaining: GAME_CONFIG.sessionDuration,
+      timeRemaining: config.sessionDuration,
       isPlaying: true,
       missedTaps: 0,
       correctTaps: 0,
       focusColor: randomFocusColor,
-      lives: continueLevel ? prev.lives : GAME_CONFIG.maxLives,
-      level: continueLevel ? prev.level : 1,
+      lives: continueLevel ? prev.lives : config.maxLives,
+      level: continueLevel ? prev.level : config.startLevel,
       totalScore: continueLevel ? prev.totalScore : 0,
       combo: 0,
       maxCombo: continueLevel ? prev.maxCombo : 0,
     }));
     setCircles([]);
+    
+    // Start music if enabled
+    if (gameState.musicEnabled) {
+      musicManager.playBackgroundMusic();
+    }
   };
 
   // Advance to next level
   const nextLevel = () => {
-    const randomFocusColor = FOCUS_COLORS[Math.floor(Math.random() * FOCUS_COLORS.length)];
+    const randomFocusColor = currentTheme.focusColors[Math.floor(Math.random() * currentTheme.focusColors.length)];
+    const config = DIFFICULTY_PRESETS[gameState.difficulty];
     
     setGameState(prev => ({
       ...prev,
       score: 0,
-      timeRemaining: GAME_CONFIG.sessionDuration,
+      timeRemaining: config.sessionDuration,
       isPlaying: true,
       missedTaps: 0,
       correctTaps: 0,
       focusColor: randomFocusColor,
       level: prev.level + 1,
-      lives: GAME_CONFIG.maxLives, // Restore lives for next level
+      lives: config.maxLives, // Restore lives for next level
     }));
     setCircles([]);
   };
@@ -164,6 +190,7 @@ export default function GameScreen() {
   // End game
   const endGame = () => {
     soundManager.playGameOver();
+    musicManager.stopBackgroundMusic();
     setGameState(prev => ({ ...prev, isPlaying: false }));
     setCircles([]);
   };
@@ -199,12 +226,17 @@ export default function GameScreen() {
     if (!gameState.isPlaying) return;
 
     const difficulty = GAME_CONFIG.getDifficulty(gameState.level);
+    const config = DIFFICULTY_PRESETS[gameState.difficulty];
+    
+    // Use config values directly (they already include difficulty preset)
+    const spawnInterval = difficulty.spawnInterval;
+    const circleLifetime = difficulty.circleLifetime;
 
     const spawner = setInterval(() => {
       if (circles.length >= GAME_CONFIG.maxCircles) return;
 
-      // Get all available colors (focus color + distractors)
-      const allColors = FOCUS_COLORS.filter(color => color !== gameState.focusColor);
+      // Get all available colors from theme (focus color + distractors)
+      const allColors = currentTheme.focusColors.filter(color => color !== gameState.focusColor);
       allColors.push(gameState.focusColor); // Add focus color to the pool
       
       // Randomly pick a color (with higher chance for focus color)
@@ -220,14 +252,14 @@ export default function GameScreen() {
         y: Math.random() * (height - 300) + 150,
         radius: GAME_CONFIG.circleRadius,
         createdAt: Date.now(),
-        lifetime: difficulty.circleLifetime,
+        lifetime: circleLifetime,
       };
 
       setCircles(prev => [...prev, newCircle]);
-    }, difficulty.spawnInterval);
+    }, spawnInterval);
 
     return () => clearInterval(spawner);
-  }, [gameState.isPlaying, gameState.focusColor, gameState.level, circles.length]);
+  }, [gameState.isPlaying, gameState.focusColor, gameState.level, gameState.difficulty, circles.length]);
 
   // Remove expired circles
   useEffect(() => {
@@ -328,7 +360,7 @@ export default function GameScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       {/* Flash overlay for feedback */}
       {flashColor && (
         <Animated.View
@@ -345,10 +377,10 @@ export default function GameScreen() {
 
       {/* Header - only show during gameplay */}
       {gameState.isPlaying && (
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: currentTheme.background }]}>
           <View>
-            <Text style={styles.score}>Score: {gameState.score}</Text>
-            <Text style={styles.levelText}>Level {gameState.level}</Text>
+            <Text style={[styles.score, { color: currentTheme.text }]}>Score: {gameState.score}</Text>
+            <Text style={[styles.levelText, { color: currentTheme.text }]}>Level {gameState.level}</Text>
           </View>
           {gameState.combo > 2 && (
             <View style={styles.comboContainer}>
@@ -409,21 +441,21 @@ export default function GameScreen() {
             {gameState.timeRemaining === GAME_CONFIG.sessionDuration ? (
               // Home screen - before game starts
               <>
-                <Text style={styles.title}>ZenSprint</Text>
-                <Text style={styles.subtitle}>Focus Training Tap Game</Text>
+                <Text style={[styles.title, { color: currentTheme.text }]}>ZenSprint</Text>
+                <Text style={[styles.subtitle, { color: currentTheme.text }]}>Focus Training Tap Game</Text>
                 <View style={styles.quoteContainer}>
-                  <Text style={styles.quoteText}>"{dailyQuote}"</Text>
+                  <Text style={[styles.quoteText, { color: currentTheme.accent }]}>" {dailyQuote}"</Text>
                 </View>
               </>
             ) : gameState.lives <= 0 ? (
               // Game Over - lost all lives
               <View style={styles.gameOverContainer}>
-                <Text style={styles.gameOverText}>Game Over</Text>
-                <Text style={styles.gameOverSubtext}>Mind Drifted...</Text>
-                <Text style={styles.finalScore}>{gameState.totalScore + gameState.score}</Text>
-                <Text style={styles.scoreLabel}>Total Score</Text>
-                <Text style={styles.levelText}>Reached Level {gameState.level}</Text>
-                <Text style={styles.stats}>
+                <Text style={[styles.gameOverText, { color: currentTheme.text }]}>Game Over</Text>
+                <Text style={[styles.gameOverSubtext, { color: currentTheme.text }]}>Mind Drifted...</Text>
+                <Text style={[styles.finalScore, { color: currentTheme.accent }]}>{gameState.totalScore + gameState.score}</Text>
+                <Text style={[styles.scoreLabel, { color: currentTheme.text }]}>Total Score</Text>
+                <Text style={[styles.levelText, { color: currentTheme.text }]}>Reached Level {gameState.level}</Text>
+                <Text style={[styles.stats, { color: currentTheme.text }]}>
                   Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
                 </Text>
                 {gameState.maxCombo > 5 && (
@@ -435,11 +467,11 @@ export default function GameScreen() {
             ) : (
               // Level Complete - time ran out with lives remaining
               <View style={styles.gameOverContainer}>
-                <Text style={styles.levelCompleteText}>Level {gameState.level} Complete! ✨</Text>
-                <Text style={styles.finalScore}>{gameState.score}</Text>
-                <Text style={styles.scoreLabel}>Level Score</Text>
-                <Text style={styles.totalScoreText}>Total: {gameState.totalScore + gameState.score}</Text>
-                <Text style={styles.stats}>
+                <Text style={[styles.levelCompleteText, { color: currentTheme.text }]}>Level {gameState.level} Complete! ✨</Text>
+                <Text style={[styles.finalScore, { color: currentTheme.accent }]}>{gameState.score}</Text>
+                <Text style={[styles.scoreLabel, { color: currentTheme.text }]}>Level Score</Text>
+                <Text style={[styles.totalScoreText, { color: currentTheme.accent }]}>Total: {gameState.totalScore + gameState.score}</Text>
+                <Text style={[styles.stats, { color: currentTheme.text }]}>
                   Correct: {gameState.correctTaps} | Missed: {gameState.missedTaps}
                 </Text>
                 {gameState.maxCombo > 5 && (
@@ -451,10 +483,10 @@ export default function GameScreen() {
             )}
 
             <TouchableOpacity 
-              style={styles.startButton} 
+              style={[styles.startButton, { backgroundColor: currentTheme.accent }]} 
               onPress={() => gameState.lives <= 0 || gameState.timeRemaining === GAME_CONFIG.sessionDuration ? startGame() : nextLevel()}
             >
-              <Text style={styles.startButtonText}>
+              <Text style={[styles.startButtonText, { color: currentTheme.background }]}>
                 {gameState.timeRemaining === GAME_CONFIG.sessionDuration
                   ? 'Start Game'
                   : gameState.lives <= 0
@@ -465,6 +497,101 @@ export default function GameScreen() {
           </View>
         )}
       </View>
+
+      {/* Settings Modal */}
+      <Modal
+        visible={gameState.showSettings}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setGameState(prev => ({ ...prev, showSettings: false }))}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Settings</Text>
+            
+            {/* Difficulty Presets */}
+            <View style={styles.settingSection}>
+              <Text style={styles.settingLabel}>Difficulty</Text>
+              <View style={styles.difficultyButtons}>
+                {(['easy', 'medium', 'hard'] as DifficultyLevel[]).map(diff => (
+                  <TouchableOpacity
+                    key={diff}
+                    style={[
+                      styles.difficultyButton,
+                      gameState.difficulty === diff && styles.difficultyButtonActive
+                    ]}
+                    onPress={() => setGameState(prev => ({ ...prev, difficulty: diff }))}
+                  >
+                    <Text style={[
+                      styles.difficultyButtonText,
+                      gameState.difficulty === diff && styles.difficultyButtonTextActive
+                    ]}>
+                      {DIFFICULTY_PRESETS[diff].name}
+                    </Text>
+                    <Text style={styles.difficultyDescription}>
+                      {DIFFICULTY_PRESETS[diff].description}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Theme Selector */}
+            <View style={styles.settingSection}>
+              <Text style={styles.settingLabel}>Theme</Text>
+              <View style={styles.themeButtons}>
+                {Object.entries(THEMES).map(([key, theme]) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[
+                      styles.themeButton,
+                      { backgroundColor: theme.background },
+                      gameState.theme === key && styles.themeButtonActive
+                    ]}
+                    onPress={() => setGameState(prev => ({ ...prev, theme: key }))}
+                  >
+                    <Text style={[styles.themeName, { color: theme.text }]}>
+                      {theme.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Music Toggle */}
+            <View style={styles.settingSection}>
+              <View style={styles.settingRow}>
+                <Text style={styles.settingLabel}>Background Music</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.toggle,
+                    gameState.musicEnabled && styles.toggleActive
+                  ]}
+                  onPress={() => {
+                    const newEnabled = !gameState.musicEnabled;
+                    setGameState(prev => ({ ...prev, musicEnabled: newEnabled }));
+                    musicManager.setEnabled(newEnabled);
+                    if (!newEnabled) {
+                      musicManager.stopBackgroundMusic();
+                    }
+                  }}
+                >
+                  <Text style={styles.toggleText}>
+                    {gameState.musicEnabled ? 'ON' : 'OFF'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setGameState(prev => ({ ...prev, showSettings: false }))}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -671,5 +798,122 @@ const styles = StyleSheet.create({
     color: COLORS.background,
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  // Settings styles
+  settingsButton: {
+    padding: 10,
+  },
+  settingsIcon: {
+    fontSize: 24,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: COLORS.background,
+    borderRadius: 20,
+    padding: 25,
+    width: '85%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  settingSection: {
+    marginBottom: 25,
+  },
+  settingLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 10,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  difficultyButtons: {
+    gap: 10,
+  },
+  difficultyButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  difficultyButtonActive: {
+    borderColor: COLORS.focus,
+    backgroundColor: 'rgba(88, 166, 255, 0.2)',
+  },
+  difficultyButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 5,
+  },
+  difficultyButtonTextActive: {
+    color: COLORS.focus,
+  },
+  difficultyDescription: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+  },
+  themeButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  themeButton: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: 'transparent',
+  },
+  themeButtonActive: {
+    borderColor: COLORS.focus,
+  },
+  themeName: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  toggle: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  toggleActive: {
+    backgroundColor: COLORS.focus,
+  },
+  toggleText: {
+    color: COLORS.text,
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  closeButton: {
+    backgroundColor: COLORS.focus,
+    padding: 15,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  closeButtonText: {
+    color: COLORS.background,
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });

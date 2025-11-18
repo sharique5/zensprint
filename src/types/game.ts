@@ -20,6 +20,10 @@ export interface GameState {
   totalScore: number; // Cumulative score across levels
   combo: number; // Consecutive correct taps
   maxCombo: number; // Best combo in session
+  showSettings: boolean;
+  difficulty: 'easy' | 'medium' | 'hard';
+  theme: string;
+  musicEnabled: boolean;
 }
 
 export const COLORS = {
