@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Circle, GameState, COLORS, FOCUS_COLORS, GAME_CONFIG } from '../types/game';
+import { soundManager } from '../utils/SoundManager';
 
 const { width, height } = Dimensions.get('window');
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
@@ -21,7 +22,7 @@ const AnimatedCircle: React.FC<{
   circle: Circle;
   onPress: (circle: Circle) => void;
   focusColor: string;
-}> = ({ circle, onPress, focusColor }) => {
+}> = React.memo(({ circle, onPress, focusColor }) => {
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const scaleAnim = React.useRef(new Animated.Value(0.5)).current;
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
@@ -95,7 +96,10 @@ const AnimatedCircle: React.FC<{
       />
     </Animated.View>
   );
-};
+}, (prevProps, nextProps) => {
+  // Only re-render if circle ID changes
+  return prevProps.circle.id === nextProps.circle.id;
+});
 
 export default function GameScreen() {
   const [gameState, setGameState] = useState<GameState>({
@@ -153,6 +157,7 @@ export default function GameScreen() {
 
   // End game
   const endGame = () => {
+    soundManager.playGameOver();
     setGameState(prev => ({ ...prev, isPlaying: false }));
     setCircles([]);
   };
@@ -166,6 +171,7 @@ export default function GameScreen() {
         const newTime = prev.timeRemaining - 1;
         if (newTime <= 0) {
           // Level complete! Add score to total
+          soundManager.playLevelComplete();
           const newTotalScore = prev.totalScore + prev.score;
           setGameState(current => ({ 
             ...current, 
@@ -256,6 +262,7 @@ export default function GameScreen() {
     if (circle.color === gameState.focusColor) {
       // Correct tap - success feedback
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      soundManager.playCorrectTap();
       setFlashColor('#4ECDC4'); // Teal flash
       Animated.sequence([
         Animated.timing(flashAnim, {
@@ -278,6 +285,7 @@ export default function GameScreen() {
     } else {
       // Wrong tap - error feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      soundManager.playWrongTap();
       setFlashColor('#FF6B6B'); // Red flash
       Animated.sequence([
         Animated.timing(flashAnim, {
