@@ -18,6 +18,8 @@ import { getTimeBasedQuote } from '../utils/quotes';
 import { musicManager } from '../utils/MusicManager';
 import { DIFFICULTY_PRESETS, DifficultyLevel } from '../utils/difficulty';
 import { THEMES, getTheme } from '../utils/themes';
+import { storageManager, SessionRecord } from '../utils/StorageManager';
+import StatsScreen from './StatsScreen';
 
 const { width, height } = Dimensions.get('window');
 const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
@@ -120,6 +122,7 @@ export default function GameScreen() {
     combo: 0,
     maxCombo: 0,
     showSettings: false,
+    showStats: false,
     difficulty: 'medium',
     theme: 'midnight',
     musicEnabled: true,
@@ -188,9 +191,46 @@ export default function GameScreen() {
   };
 
   // End game
-  const endGame = () => {
+  const endGame = async () => {
     soundManager.playGameOver();
     musicManager.stopBackgroundMusic();
+    
+    // Save session to storage
+    const totalTaps = gameState.correctTaps + gameState.missedTaps;
+    const accuracy = totalTaps > 0 ? Math.round((gameState.correctTaps / totalTaps) * 100) : 0;
+    const config = DIFFICULTY_PRESETS[gameState.difficulty];
+    const duration = config.sessionDuration - gameState.timeRemaining;
+    
+    const session: SessionRecord = {
+      id: Date.now().toString(),
+      score: gameState.totalScore + gameState.score,
+      level: gameState.level,
+      difficulty: gameState.difficulty,
+      correctTaps: gameState.correctTaps,
+      missedTaps: gameState.missedTaps,
+      maxCombo: gameState.maxCombo,
+      duration,
+      accuracy,
+      date: new Date().toISOString(),
+      timestamp: Date.now(),
+    };
+    
+    await storageManager.addSession(session);
+    await storageManager.updateUserStats(session);
+    await storageManager.updateStreak();
+    
+    // Add to leaderboard if it's a top score
+    const isTop = await storageManager.isTopScore(session.score);
+    if (isTop) {
+      await storageManager.addToLeaderboard({
+        score: session.score,
+        level: session.level,
+        difficulty: session.difficulty,
+        maxCombo: session.maxCombo,
+        date: session.date,
+      });
+    }
+    
     setGameState(prev => ({ ...prev, isPlaying: false }));
     setCircles([]);
   };
@@ -446,6 +486,22 @@ export default function GameScreen() {
                 <View style={styles.quoteContainer}>
                   <Text style={[styles.quoteText, { color: currentTheme.accent }]}>" {dailyQuote}"</Text>
                 </View>
+                
+                {/* Home Screen Buttons */}
+                <View style={styles.homeButtons}>
+                  <TouchableOpacity 
+                    style={[styles.homeButton, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
+                    onPress={() => setGameState(prev => ({ ...prev, showStats: true }))}
+                  >
+                    <Text style={[styles.homeButtonText, { color: currentTheme.text }]}>📊 Stats</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.homeButton, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
+                    onPress={() => setGameState(prev => ({ ...prev, showSettings: true }))}
+                  >
+                    <Text style={[styles.homeButtonText, { color: currentTheme.text }]}>⚙️ Settings</Text>
+                  </TouchableOpacity>
+                </View>
               </>
             ) : gameState.lives <= 0 ? (
               // Game Over - lost all lives
@@ -592,6 +648,20 @@ export default function GameScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Stats Screen Modal */}
+      {gameState.showStats && (
+        <Modal
+          visible={true}
+          animationType="slide"
+          onRequestClose={() => setGameState(prev => ({ ...prev, showStats: false }))}
+        >
+          <StatsScreen
+            onClose={() => setGameState(prev => ({ ...prev, showStats: false }))}
+            theme={gameState.theme}
+          />
+        </Modal>
+      )}
     </View>
   );
 }
@@ -915,5 +985,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  // Home screen buttons
+  homeButtons: {
+    flexDirection: 'row',
+    gap: 15,
+    marginTop: 30,
+  },
+  homeButton: {
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  homeButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

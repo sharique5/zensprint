@@ -21,6 +21,7 @@ export interface GameState {
   combo: number; // Consecutive correct taps
   maxCombo: number; // Best combo in session
   showSettings: boolean;
+  showStats: boolean;
   difficulty: 'easy' | 'medium' | 'hard';
   theme: string;
   musicEnabled: boolean;
