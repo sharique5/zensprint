@@ -19,7 +19,9 @@
       "bundleIdentifier": "com.disionix.zensprint",
       "buildNumber": "1.0.0",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
+        "UIBackgroundModes": [
+          "audio"
+        ],
         "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you."
       }
     },
@@ -39,7 +41,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "781b8de6-b94d-4934-9899-e9e91ca3723a"
       }
     }
   }
