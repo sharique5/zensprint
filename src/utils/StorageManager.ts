@@ -192,6 +192,15 @@ class StorageManager {
       const today = new Date().toDateString();
       const lastPlayed = new Date(streak.lastPlayedDate).toDateString();
       
+      // First time playing - set streak to 1
+      if (streak.currentStreak === 0) {
+        streak.currentStreak = 1;
+        streak.longestStreak = 1;
+        streak.lastPlayedDate = new Date().toISOString();
+        await AsyncStorage.setItem(KEYS.STREAK, JSON.stringify(streak));
+        return streak;
+      }
+      
       if (today === lastPlayed) {
         // Already played today, no change
         return streak;

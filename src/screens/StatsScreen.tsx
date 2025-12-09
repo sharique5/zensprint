@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 'bold',
   },
   tabContent: {

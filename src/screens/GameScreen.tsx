@@ -178,14 +178,13 @@ export default function GameScreen() {
     
     setGameState(prev => ({
       ...prev,
-      score: 0,
+      score: 0, // Reset level score
       timeRemaining: config.sessionDuration,
       isPlaying: true,
-      missedTaps: 0,
-      correctTaps: 0,
       focusColor: randomFocusColor,
       level: prev.level + 1,
       lives: config.maxLives, // Restore lives for next level
+      // Keep correctTaps, missedTaps, and maxCombo cumulative across levels
     }));
     setCircles([]);
   };
@@ -285,11 +284,13 @@ export default function GameScreen() {
         ? gameState.focusColor 
         : allColors[Math.floor(Math.random() * (allColors.length - 1))];
       
+      // Prevent spawning too close to bottom (footer navigation)
+      const safeBottomMargin = 150;
       const newCircle: Circle = {
         id: Date.now().toString() + Math.random(),
         color: color,
         x: Math.random() * (width - 100) + 50,
-        y: Math.random() * (height - 300) + 150,
+        y: Math.random() * (height - 300 - safeBottomMargin) + 150,
         radius: GAME_CONFIG.circleRadius,
         createdAt: Date.now(),
         lifetime: circleLifetime,
@@ -319,7 +320,7 @@ export default function GameScreen() {
                 if (newLives <= 0) {
                   endGame();
                 }
-                return { ...gs, missedTaps: newMisses, lives: newLives };
+                return { ...gs, missedTaps: newMisses, lives: newLives, combo: 0 }; // Reset combo on miss
               });
             }
             return false;
@@ -390,7 +391,7 @@ export default function GameScreen() {
           score: Math.max(0, prev.score - 5),
           missedTaps: prev.missedTaps + 1,
           lives: newLives,
-          combo: 0,
+          combo: 0, // Reset combo on wrong tap
         };
       });
     }
@@ -488,7 +489,7 @@ export default function GameScreen() {
                 </View>
                 
                 {/* Home Screen Buttons */}
-                <View style={styles.homeButtons}>
+                <View style={styles.homeButtonsContainer}>
                   <TouchableOpacity 
                     style={[styles.homeButton, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
                     onPress={() => setGameState(prev => ({ ...prev, showStats: true }))}
@@ -538,6 +539,30 @@ export default function GameScreen() {
               </View>
             )}
 
+            {gameState.timeRemaining !== GAME_CONFIG.sessionDuration && (
+              <View style={styles.gameOverButtons}>
+                <TouchableOpacity 
+                  style={[styles.secondaryButton, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
+                  onPress={() => setGameState(prev => ({ ...prev, showStats: true }))}
+                >
+                  <Text style={[styles.secondaryButtonText, { color: currentTheme.text }]}>📊 View Stats</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.secondaryButton, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
+                  onPress={() => {
+                    setGameState(prev => ({
+                      ...prev,
+                      timeRemaining: GAME_CONFIG.sessionDuration,
+                      isPlaying: false,
+                      lives: GAME_CONFIG.maxLives,
+                    }));
+                  }}
+                >
+                  <Text style={[styles.secondaryButtonText, { color: currentTheme.text }]}>🏠 Home</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            
             <TouchableOpacity 
               style={[styles.startButton, { backgroundColor: currentTheme.accent }]} 
               onPress={() => gameState.lives <= 0 || gameState.timeRemaining === GAME_CONFIG.sessionDuration ? startGame() : nextLevel()}
@@ -640,10 +665,10 @@ export default function GameScreen() {
             </View>
 
             <TouchableOpacity
-              style={styles.closeButton}
+              style={styles.saveButton}
               onPress={() => setGameState(prev => ({ ...prev, showSettings: false }))}
             >
-              <Text style={styles.closeButtonText}>Close</Text>
+              <Text style={styles.saveButtonText}>Save Settings</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -987,18 +1012,55 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   // Home screen buttons
+  homeButtonsContainer: {
+    marginTop: 30,
+    marginBottom: 20,
+    gap: 15,
+  },
   homeButtons: {
     flexDirection: 'row',
     gap: 15,
-    marginTop: 30,
   },
   homeButton: {
     paddingHorizontal: 25,
-    paddingVertical: 12,
+    paddingVertical: 15,
     borderRadius: 20,
+    minWidth: 140,
+    alignItems: 'center',
   },
   homeButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Game over navigation buttons
+  gameOverButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 15,
+  },
+  secondaryButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+    minWidth: 130,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Settings modal
+  saveButton: {
+    backgroundColor: COLORS.focus,
+    padding: 15,
+    borderRadius: 12,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  saveButtonText: {
+    color: COLORS.background,
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
